@@ -1,5 +1,6 @@
 package com.wugui.datax.admin.service.impl;
 
+import com.wugui.datax.admin.entity.JobRole;
 import com.wugui.datax.admin.entity.JwtUser;
 import com.wugui.datax.admin.entity.JobUser;
 import com.wugui.datax.admin.mapper.JobUserMapper;
@@ -10,7 +11,10 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 /**
- * Created by echisan on 2018/6/23
+ * UserDetailsServiceImpl
+ * @author jingwk
+ * @since 2019-03-15
+ * @version v2.1.1
  */
 @Service
 public class UserDetailsServiceImpl implements UserDetailsService {
@@ -21,7 +25,8 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String s) throws UsernameNotFoundException {
         JobUser user = jobUserMapper.loadByUserName(s);
-        return new JwtUser(user);
+        JobRole role = jobUserMapper.getRoleByUserId(user.getId());
+        return new JwtUser(user, role);
     }
 
 }

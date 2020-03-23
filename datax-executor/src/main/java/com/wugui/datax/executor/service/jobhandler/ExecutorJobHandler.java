@@ -9,7 +9,7 @@ import com.wugui.datatx.core.handler.IJobHandler;
 import com.wugui.datatx.core.handler.annotation.JobHandler;
 import com.wugui.datatx.core.log.JobLogger;
 import com.wugui.datatx.core.thread.ProcessCallbackThread;
-import com.wugui.datatx.core.util.Constant;
+import com.wugui.datatx.core.util.Constants;
 import com.wugui.datatx.core.util.DateUtil;
 import com.wugui.datatx.core.util.ProcessUtil;
 import com.wugui.datax.executor.util.SystemUtils;
@@ -23,6 +23,8 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
+import static com.wugui.datax.executor.service.jobhandler.DataxOption.DEFAULT_DATAX_PY;
+
 /**
  * DataX任务运行
  *
@@ -34,27 +36,28 @@ import java.util.List;
 public class ExecutorJobHandler extends IJobHandler {
 
     @Value("${datax.executor.jsonpath}")
-    private String jsonpath;
+    private String jsonPath;
 
     @Value("${datax.pypath}")
     private String dataXPyPath;
 
     @Override
-    public ReturnT<String> execute(TriggerParam tgParam) throws Exception {
+    public ReturnT<String> execute(TriggerParam trigger) {
         int exitValue = -1;
         Thread inputThread = null;
         Thread errThread = null;
         String tmpFilePath;
         //生成Json临时文件
-        tmpFilePath = generateTemJsonFile(tgParam.getJobJson());
+        tmpFilePath = generateTemJsonFile(trigger.getJobJson());
         try {
-            String[] cmdarrayFinal = buildCmd(tgParam, tmpFilePath);
+            String[] cmdarrayFinal = buildCmd(trigger, tmpFilePath);
             final Process process = Runtime.getRuntime().exec(cmdarrayFinal);
-            String processId = ProcessUtil.getProcessId(process);
-            JobLogger.log("------------------DataX运行进程Id: " + processId);
-            jobTmpFiles.put(processId, tmpFilePath);
+            String prcsId = ProcessUtil.getProcessId(process);
+            JobLogger.log("------------------DataX运行进程Id: " + prcsId);
+            jobTmpFiles.put(prcsId, tmpFilePath);
             //更新任务进程Id
-            ProcessCallbackThread.pushCallBack(new HandleProcessCallbackParam(tgParam.getLogId(), tgParam.getLogDateTime(), processId));
+            HandleProcessCallbackParam prcs = new HandleProcessCallbackParam(trigger.getLogId(), trigger.getLogDateTime(), prcsId);
+            ProcessCallbackThread.pushCallBack(prcs);
             // log-thread
             inputThread = new Thread(() -> {
                 try {
@@ -101,17 +104,19 @@ public class ExecutorJobHandler extends IJobHandler {
     private String[] buildCmd(TriggerParam tgParam, String tmpFilePath) {
         // command process
         //"--loglevel=debug"
-        List<String> cmdarray = new ArrayList<>();
-        cmdarray.add("python");
+        List<String> cmdArr = new ArrayList<>();
+        cmdArr.add("python");
         String dataXHomePath = SystemUtils.getDataXHomePath();
-        if (StringUtils.isNotEmpty(dataXHomePath)) dataXPyPath = dataXHomePath + DataxOption.DEFAULT_DATAX_PY;
-        cmdarray.add(dataXPyPath);
+        if (StringUtils.isNotEmpty(dataXHomePath)) {
+            dataXPyPath = dataXHomePath.contains("bin") ? dataXHomePath + DEFAULT_DATAX_PY : dataXHomePath + "bin" + File.separator + DEFAULT_DATAX_PY;
+        }
+        cmdArr.add(dataXPyPath);
         String doc = buildDataXParam(tgParam);
         if (StringUtils.isNotBlank(doc)) {
-            cmdarray.add(doc.replaceAll(DataxOption.SPLIT_SPACE, DataxOption.TRANSFORM_SPLIT_SPACE));
+            cmdArr.add(doc.replaceAll(DataxOption.SPLIT_SPACE, DataxOption.TRANSFORM_SPLIT_SPACE));
         }
-        cmdarray.add(tmpFilePath);
-        return cmdarray.toArray(new String[cmdarray.size()]);
+        cmdArr.add(tmpFilePath);
+        return cmdArr.toArray(new String[cmdArr.size()]);
     }
 
     /**
@@ -150,13 +155,13 @@ public class ExecutorJobHandler extends IJobHandler {
             doc.append(DataxOption.PARAMS_CM).append(DataxOption.TRANSFORM_QUOTES).append(String.format(tgParam.getReplaceParam(), lastTime, tgSecondTime));
             if (StringUtils.isNotBlank(partitionStr)) {
                 doc.append(DataxOption.SPLIT_SPACE);
-                List<String> partitionInfo = Arrays.asList(partitionStr.split(Constant.SPLIT_COMMA));
+                List<String> partitionInfo = Arrays.asList(partitionStr.split(Constants.SPLIT_COMMA));
                 doc.append(String.format(DataxOption.PARAMS_CM_V_PT, buildPartition(partitionInfo)));
             }
             doc.append(DataxOption.TRANSFORM_QUOTES);
-        }else{
+        } else {
             if (StringUtils.isNotBlank(partitionStr)) {
-                List<String> partitionInfo = Arrays.asList(partitionStr.split(Constant.SPLIT_COMMA));
+                List<String> partitionInfo = Arrays.asList(partitionStr.split(Constants.SPLIT_COMMA));
                 if (doc.length() > 0) doc.append(DataxOption.SPLIT_SPACE);
                 doc.append(DataxOption.PARAMS_CM).append(DataxOption.TRANSFORM_QUOTES).append(String.format(DataxOption.PARAMS_CM_V_PT, buildPartition(partitionInfo))).append(DataxOption.TRANSFORM_QUOTES);
             }
@@ -170,15 +175,19 @@ public class ExecutorJobHandler extends IJobHandler {
         int timeOffset = Integer.parseInt(partitionInfo.get(1));
         String timeFormat = partitionInfo.get(2);
         String partitionTime = DateUtil.format(DateUtil.addDays(new Date(), timeOffset), timeFormat);
-        return field + Constant.EQUAL + partitionTime;
+        return field + Constants.EQUAL + partitionTime;
     }
 
     private String generateTemJsonFile(String jobJson) {
         String tmpFilePath;
         String dataXHomePath = SystemUtils.getDataXHomePath();
-        if (StringUtils.isNotEmpty(dataXHomePath)) jsonpath = dataXHomePath + DataxOption.DEFAULT_JSON;
-        if (!FileUtil.exist(jsonpath)) FileUtil.mkdir(jsonpath);
-        tmpFilePath = jsonpath + "jobTmp-" + IdUtil.simpleUUID() + ".conf";
+        if (StringUtils.isNotEmpty(dataXHomePath)) {
+            jsonPath = dataXHomePath + DataxOption.DEFAULT_JSON;
+        }
+        if (!FileUtil.exist(jsonPath)) {
+            FileUtil.mkdir(jsonPath);
+        }
+        tmpFilePath = jsonPath + "jobTmp-" + IdUtil.simpleUUID() + ".conf";
         // 根据json写入到临时本地文件
         try (PrintWriter writer = new PrintWriter(tmpFilePath, "UTF-8")) {
             writer.println(jobJson);
